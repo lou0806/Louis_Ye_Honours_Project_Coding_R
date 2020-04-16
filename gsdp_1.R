@@ -15,6 +15,28 @@ gsdp<-function(y,x,
   #thin:      Degree of thinning
   #pri.mn,    the prior mean and standard deviation of the
   #pri.sd:        spatial mean GEV parameters
+  ns<- nrow(y) #number of locations
+  nt<- ncol(y) #number of years/replications
   
+  #initial values
+  beta<-rep(0,p)
+  v<-rep(.9,n.terms)
+  sige<-rep(mx.sige/2,n.terms);taue<-1/sige^2
+  mu<-rep(0,n.terms)
+  sigs<-mx.sigs/2;taumu<-1/sigs^2
+  knot<-matrix(runif(2*n.terms,0,1),2,n.terms)
+  rho<-.5
+  g<-rep(1,n)
+  vs<-matrix(0,n,n.terms)
+  for(k in 1:n.terms){vs[,k]<-onevs(z,rho,knot[,k],v[k])}
+  probs<-makeprobs(vs)
+  
+  v<-rep(.5,nk);v[nk]<-1
+  D<-1
+  probs<-makeprobs(v)
+  g<-rep(1,nt)
+  MU<-rep(0,nk)
+  MU.prec<-1
+  rho<-rep(mean(d),nk)
   
 }
