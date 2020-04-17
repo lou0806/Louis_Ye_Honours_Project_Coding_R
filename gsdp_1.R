@@ -1,8 +1,32 @@
+# Dirichlet process to draw a random distribution F from a prior F0
+#  alpha determines the similarity with the prior guess
+#  F0 is the cdf of the prior guess (an object of class "DiscreteDistribution")
+
+##Useful Functions
+library(distr) 
+
+cdf_sample <- function(emp_cdf, n=1e3) {
+  emp_cdf@r(n) ##random sample
+}
+
+dp <- function(alpha, F0, n=1e3) { # n should be large since it's an approx for +oo
+  
+  s <- cdf_sample(F0,n)            # step 1: draw from F0
+  V <- rbeta(n,1,alpha)            # step 2: draw from beta(1,alpha)
+  w <- c(1, rep(NA,n-1))           # step 3: compute 'stick breaking process' into w[i]
+  w[2:n] <- sapply(2:n, function(i) V[i] * prod(1 - V[1:(i-1)]))
+  
+  # return the sampled function F which can be itself sampled 
+  # this F is a probability mass function where each s[i] has mass w[i]
+  function (size=1e4) {
+    sample(s, size, prob=w, replace=TRUE)
+  }
+}
+
+##GSDP Function
 gsdp<-function(y,x,
                  spatial=T,varyparam=rep(F,3),nk=5,
-                 pri.mn=rep(0,3),pri.sd=rep(100,3),
-                 as=rep(0.1,3),bs=rep(0.1,3),mx.rho=10,
-                 iters=5000,burn=1000,verbose=10,thin=1){
+                 iters=5000,burn=1000,verbose=10,thin=1,mx.siga,mx.sigb,mx.taua,mx.taub){
   #y:         data (ns x nt)
   #x:         spatial coordinates (ns x 2)
   #spatial:   model the resids as spatially correlated?
@@ -13,30 +37,34 @@ gsdp<-function(y,x,
   #burn:      number of samples to discard
   #verbose:   how often to make updates
   #thin:      Degree of thinning
-  #pri.mn,    the prior mean and standard deviation of the
-  #pri.sd:        spatial mean GEV parameters
   ns<- nrow(y) #number of locations
   nt<- ncol(y) #number of years/replications
+  xdim<-ncol(x) #covariate dimension
   
   #initial values
-  beta<-rep(0,p)
-  v<-rep(.9,n.terms)
-  sige<-rep(mx.sige/2,n.terms);taue<-1/sige^2
-  mu<-rep(0,n.terms)
-  sigs<-mx.sigs/2;taumu<-1/sigs^2
-  knot<-matrix(runif(2*n.terms,0,1),2,n.terms)
-  rho<-.5
-  g<-rep(1,n)
-  vs<-matrix(0,n,n.terms)
-  for(k in 1:n.terms){vs[,k]<-onevs(z,rho,knot[,k],v[k])}
-  probs<-makeprobs(vs)
+  beta<-rep(0,xdim) #initializing beta
+  siga<- rep(mx.siga/2, nt)#taking uninformative priors for a's and b's
+  sigb<-rep(mx.sigb/2,nt) #TODO: FIGURE THIS OUT
+  taua<-rep(mx.taua/2,nt)
+  taub<-rep(mx.taub/2,nt)
+  bphi<-runif(1,0,.1) #uninformative prior for phi, using .1 based on (Gelfand 2005: 1024)
+  phi<-runif(1,0,bphi)
   
-  v<-rep(.5,nk);v[nk]<-1
-  D<-1
-  probs<-makeprobs(v)
-  g<-rep(1,nt)
-  MU<-rep(0,nk)
-  MU.prec<-1
-  rho<-rep(mean(d),nk)
+  alpha<-rgamma(1,1,1)
+  sigma<-1/rgamma(1,siga,sigb)
+  H<-matrix(0,nrow=ns,ncol=ns)#produce the correlation matrix
+  for (i in 1:ns){
+    for (j in 1:ns){
+      H[i,j]<-exp(-phi*((x[i,1] - x[j,1])^2 + (x[i,2]- x[j,2])^2))
+    }
+  }
+  F0<-rmvnorm(1,rep(0,ns),sigma*H)
+  theta<-dp(alpha,DiscreteDistribution(F0))
   
+  for (i in 1:iters){
+    #Update beta
+    betaMean<- apply(y,1,mean)
+  }
 }
+
+
