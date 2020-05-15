@@ -24,9 +24,11 @@ dp <- function(alpha, F0, n=1e3) { # n should be large since it's an approx for 
 }
 
 ##GSDP Function - MCMC Posterior Simulation Model
-gsdp<-function(y,x,
+
+##function without cluster implementation
+gsdp_no_cluster<-function(y,x,
                  spatial=T,varyparam=rep(F,3),nk=5,
-                 iters=5000,burn=1000,verbose=10,thin=1,mx.siga,mx.sigb,mx.taua,mx.taub){
+                 iters=1000,burn=100,verbose=10,thin=1,mx.siga,mx.sigb,mx.taua,mx.taub, noClusters = NA){
   #y:         data (ns x nt)
   #x:         spatial coordinates (ns x 2)
   #spatial:   model the resids as spatially correlated?
@@ -37,9 +39,12 @@ gsdp<-function(y,x,
   #burn:      number of samples to discard
   #verbose:   how often to make updates
   #thin:      Degree of thinning
+  #noClusters: number of clusters
+  
   ns<- nrow(y) #number of locations
   nt<- ncol(y) #number of years/replications
   xdim<-ncol(x) #covariate dimension
+  noClusters<-ns
   
   #initial values
   beta<-rep(0,xdim) #initializing beta
@@ -52,7 +57,7 @@ gsdp<-function(y,x,
   bphi<-runif(1,0,.5) #uninformative prior for phi, using .1 based on (Gelfand 2005: 1024)
   phi<-runif(1,0,bphi)
   
-  alpha<-rgamma(1,1,1)
+  alpha<-rgamma(1,1,1) #a_alpha and b_alpha set as 1's
   tau<-1/rgamma(1,taua,taub) #initialize tau
   sigma<-1/rgamma(1,siga,sigb) #initialize sigma
   H<-matrix(0,nrow=ns,ncol=ns)#produce the correlation matrix
@@ -66,14 +71,78 @@ gsdp<-function(y,x,
   
   #MCMC Loop
   
+  htheta<-matrix(0,nrow=ns,ncol=nt)
+  wvec<-rep(0,nt)
+  q0<-rep(0,nt)
+  qj<-matrix(0,nrow=ns,ncol=nt)
+  denomvec<-rep(0,nt)
+  thetavec<-matrix(0,nrow=ns,ncol=nt)
+  thetaspec<-matrix(0,nrow=ns,ncol=nt)
+  
   for (i in 1:iters){
     
     #a)
     #Set Lambda
     Lambda <- solve((tau^(-2) * diag(ns) + sigma^(-2)*solve(H)))
-    #Set q0
-    q0<-alpha*(det(Lambda))^(1/2)*exp(-0.5*tau^(-2)*(t(y[,t]-x%*%beta)%*%(diag(ns) - tau^(-2)*Lambda)%*%(y[,t]-x%*%beta))) * ((2*pi*tau^2*sigma^2)^(ns/2)*det(H)^(1/2))^(-1)
-    theta_t <- rmvnorm(1, tau^(-2)*(Lambda*(rowMeans(y,na.rm=TRUE) - x%*%beta)),Lambda)
+    
+    #Set q0, h
+    for (j in 1:nt){
+      q0[j]<-alpha*(det(Lambda))^(1/2)*exp(-0.5*tau^(-2)*(t(y[,j]-x%*%t(beta))%*%(diag(ns) - tau^(-2)*Lambda)%*%(y[,j]-x%*%t(beta)))) * ((2*pi*tau^2*sigma^2)^(ns/2)*det(H)^(1/2))^(-1)
+      htheta[,j] <- q0[j] * rmvnorm(1, tau^(-2)*(Lambda%*%(y[,j] - x%*%t(beta))),Lambda)
+    }
+    for (j in 1:nt){
+      qj[,j]<-rmvnorm(1, x%*%t(beta) + htheta[,j],tau^(2)*diag(ns))
+      #NOTE: we use htheta here we we do not introduce clustering in this code, s.t. each location is 'distinct'
+    }
+    for(j in 1:nt){
+      denomvec[j]<-q0[j]+sum(rowSums(qj))
+    }
+    
+    #posterior theta
+    for (j in 1:nt){
+      thetavec[,j]<-  (q0[j]*htheta[,j] + qj[,j])/(denomvec[j])
+    }
+    
+    #b)
+    err<-matrix(0,nrow=ns,ncol=nt)
+    for (j in 1:nt){
+      err[,j]<-y[,j] - x%*%t(beta)
+    }
+    for (j in 1:noClusters){
+      thetaspec[,j]<-rmvnorm(1,tau^(-2)*solve(1*tau^(-2)*diag(ns)+sigma^(-2)*solve(H))%*% err[,j],solve(1*tau^(-2)*diag(ns)+sigma^(-2)*solve(H)))
+      #NOTE: 1* is normally T_j, not implementing clustering
+    }
+    
+    #c)
+    Sigma_b <-sd(y)^(2)*solve(t(x)%*%x)
+    Sigma_tilde<-solve(solve(Sigma_b)+tau^(-2)*nt*t(x)%*%x)
+    #NOTE *nt* is here instead of sum of T, using stationary covariates
+    sum_d <-0
+    for (j in 1:nt){
+      sum_d<-sum_d + t(x)%*%(y[,j] - thetavec[,j])
+    }
+    beta_tilde<-Sigma_tilde%*%(solve(Sigma_b)%*%t(beta) + tau^(-2)*sum_d)
+    beta<-rmvnorm(1,beta_tilde,Sigma_tilde)
+    
+    sum_d2<-0
+    for (j in 1:nt){
+      sum_d2 <- sum_d2 + t(y[,j] - x%*%t(beta) - thetavec[,j])%*%(y[,j] -x%*%t(beta) - thetavec[,j])
+    }
+    tau<-rgamma(1,taua+0.5*nt*noClusters,taub+0.5*sum_d2[1])
+    
+    #d)
+    #update alpha
+    eta_aux<-rbeta(1,alpha+1,nt)
+    p_d<-(1+noClusters-1)/(nt*(1-log(eta_aux))+1+noClusters -1) #a_alpha and b_alpha set as 1
+    alpha<-p_d*rgamma(1,1+noClusters,1-log(eta_aux)) + (1-p_d)*rgamma(1,1+noClusters-1,1-log(eta_aux))
+    #update sigma
+    sum_d3<-0
+    for (j in 1:nt){
+      sum_d3 <- sum_d3 + t(thetaspec[,j])%*%solve(H)%*%thetaspec[,j]
+    }
+    sigma<-rgamma(1,siga+.5*nt*noClusters,sigb+.5*sum_d3[1])
+    #update phi
+    phi<-(det(H))^(-noClusters/2)*exp(-sum_d3/(2*sigma^(2)))
   }
 }
 
