@@ -3,7 +3,8 @@
 #  F0 is the cdf of the prior guess (an object of class "DiscreteDistribution")
 
 ##Useful Functions
-library(distr) 
+library(distr)
+library(mvtnorm)
 
 cdf_sample <- function(emp_cdf, n=1e3) {
   emp_cdf@r(n) ##random sample
@@ -24,6 +25,7 @@ dp <- function(alpha, F0, n=1e3) { # n should be large since it's an approx for 
 }
 
 ##GSDP Function - MCMC Posterior Simulation Model
+##This function uses in-model Kriging (discussed in end of Section 3 in Gelfand (2005)) to 'fill in' missing data
 
 ##function without cluster implementation
 gsdp_no_cluster<-function(y,x,
@@ -49,6 +51,7 @@ gsdp_no_cluster<-function(y,x,
   #initial values
   beta<-rep(0,xdim) #initializing beta
   beta<-solve(t(x)%*%x)%*%t(x)%*%rowMeans(y,na.rm=TRUE)
+  beta<-t(beta)
   
   siga<- rep(mx.siga/2, nt)#taking uninformative priors for a's and b's
   sigb<-rep(mx.sigb/2,nt) #TODO: FIGURE THIS OUT
@@ -70,7 +73,6 @@ gsdp_no_cluster<-function(y,x,
   theta<-dp(alpha,DiscreteDistribution(F0)) #initialize theta
   
   #MCMC Loop
-  
   htheta<-matrix(0,nrow=ns,ncol=nt)
   wvec<-rep(0,nt)
   q0<-rep(0,nt)
@@ -79,29 +81,49 @@ gsdp_no_cluster<-function(y,x,
   thetavec<-matrix(0,nrow=ns,ncol=nt)
   thetaspec<-matrix(0,nrow=ns,ncol=nt)
   
+  #Within-replicate Kriging using the initialized theta, tau and beta
+  for (i in 1:nt) {
+    x.u<-matrix(c(x[,1][is.na(y[,i])],x[,2][is.na(y[,i])]),ncol=2)
+    y.obs<-y[,i][!is.na(y[,i])]
+    x.obs<-matrix(c(x[,1][!is.na(y[,i])],x[,2][!is.na(y[,i])]),ncol=2)
+    n.na<-length(y[,i]) - length(y.obs)
+    beta.temp<-rep(0,length(y.obs)) #initializing beta
+    beta.temp<-solve(t(x.obs)%*%x.obs)%*%t(x.obs)%*%y.obs
+    #beta.temp<-t(beta.temp)
+    thetavec.temp <- sample(theta(),n.na)
+    y.u<-rmvnorm(1,x.u%*%beta.temp + thetavec.temp,tau^2*diag(n.na))
+    
+    y[,i][is.na(y[,i])]<-y.u
+  }
+  
+  #MCMC Algorithm
   for (i in 1:iters){
     
     #a)
     #Set Lambda
-    Lambda <- solve((tau^(-2) * diag(ns) + sigma^(-2)*solve(H)))
+    Lambda <- solve((tau^(-2)*diag(ns) + sigma^(-2)*solve(H)))
     
     #Set q0, h
     for (j in 1:nt){
       q0[j]<-alpha*(det(Lambda))^(1/2)*exp(-0.5*tau^(-2)*(t(y[,j]-x%*%t(beta))%*%(diag(ns) - tau^(-2)*Lambda)%*%(y[,j]-x%*%t(beta)))) * ((2*pi*tau^2*sigma^2)^(ns/2)*det(H)^(1/2))^(-1)
       htheta[,j] <- q0[j] * rmvnorm(1, tau^(-2)*(Lambda%*%(y[,j] - x%*%t(beta))),Lambda)
-    }
-    for (j in 1:nt){
+      
       qj[,j]<-rmvnorm(1, x%*%t(beta) + htheta[,j],tau^(2)*diag(ns))
-      #NOTE: we use htheta here we we do not introduce clustering in this code, s.t. each location is 'distinct'
-    }
-    for(j in 1:nt){
       denomvec[j]<-q0[j]+sum(rowSums(qj))
+      thetavec[,j]<-  (1/(denomvec[j]))*(q0[j]*htheta[,j] + qj[,j])
     }
+    #for (j in 1:nt){
+    #  qj[,j]<-rmvnorm(1, x%*%t(beta) + htheta[,j],tau^(2)*diag(ns))
+      #NOTE: we use htheta here we we do not introduce clustering in this code, s.t. each location is 'distinct'
+    #}
+    #for(j in 1:nt){
+    #  denomvec[j]<-q0[j]+sum(rowSums(qj))
+    #}
     
     #posterior theta
-    for (j in 1:nt){
-      thetavec[,j]<-  (q0[j]*htheta[,j] + qj[,j])/(denomvec[j])
-    }
+    #for (j in 1:nt){
+    #  thetavec[,j]<-  (q0[j]*htheta[,j] + qj[,j])/(denomvec[j])
+    #}
     
     #b)
     err<-matrix(0,nrow=ns,ncol=nt)
@@ -114,6 +136,7 @@ gsdp_no_cluster<-function(y,x,
     }
     
     #c)
+    ##TODO: IMPLEMENT THE CLUSTERING
     Sigma_b <-sd(y)^(2)*solve(t(x)%*%x)
     Sigma_tilde<-solve(solve(Sigma_b)+tau^(-2)*nt*t(x)%*%x)
     #NOTE *nt* is here instead of sum of T, using stationary covariates
