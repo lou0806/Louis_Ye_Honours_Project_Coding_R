@@ -46,17 +46,16 @@ gsdp_no_cluster<-function(y,x,
   ns<- nrow(y) #number of locations
   nt<- ncol(y) #number of years/replications
   xdim<-ncol(x) #covariate dimension
-  noClusters<-ns
-  
+
   #initial values
   beta<-rep(0,xdim) #initializing beta
   beta<-solve(t(x)%*%x)%*%t(x)%*%rowMeans(y,na.rm=TRUE)
   beta<-t(beta)
   
-  siga<- rep(mx.siga/2, nt)#taking uninformative priors for a's and b's
-  sigb<-rep(mx.sigb/2,nt) #TODO: FIGURE THIS OUT
-  taua<-rep(mx.taua/2,nt)
-  taub<-rep(mx.taub/2,nt)
+  siga<- mx.siga/2#rep(mx.siga/2, nt)#taking uninformative priors for a's and b's
+  sigb<-mx.sigb/2#rep(mx.sigb/2,nt) #TODO: FIGURE THIS OUT
+  taua<-mx.taua/2#rep(mx.taua/2,nt)
+  taub<-mx.taub/2#rep(mx.taub/2,nt)
   bphi<-runif(1,0,.5) #uninformative prior for phi, using .1 based on (Gelfand 2005: 1024)
   phi<-runif(1,0,bphi)
   
@@ -72,78 +71,98 @@ gsdp_no_cluster<-function(y,x,
   F0<-rmvnorm(1,rep(0,ns),sigma*H)
   theta<-dp(alpha,DiscreteDistribution(F0)) #initialize theta
   
-  #MCMC Loop
+  #MCMC Loop initialize
   htheta<-matrix(0,nrow=ns,ncol=nt)
-  wvec<-rep(0,nt)
   q0<-rep(0,nt)
   qj<-matrix(0,nrow=ns,ncol=nt)
   denomvec<-rep(0,nt)
+  
+  wvec<-matrix(NA,nrow=ns,ncol=nt)
   thetavec<-matrix(0,nrow=ns,ncol=nt)
-  thetaspec<-matrix(0,nrow=ns,ncol=nt)
+  clustercount <- rep(NA, nt)
+  thetaspec <- matrix(NA,nrow=ns,ncol=nt)
+  groupvec <- matrix(NA,nrow=ns,ncol=nt)
   
   #Within-replicate Kriging using the initialized theta, tau and beta
-  for (i in 1:nt) {
-    x.u<-matrix(c(x[,1][is.na(y[,i])],x[,2][is.na(y[,i])]),ncol=2)
-    y.obs<-y[,i][!is.na(y[,i])]
-    x.obs<-matrix(c(x[,1][!is.na(y[,i])],x[,2][!is.na(y[,i])]),ncol=2)
-    n.na<-length(y[,i]) - length(y.obs)
-    beta.temp<-rep(0,length(y.obs)) #initializing beta
-    beta.temp<-solve(t(x.obs)%*%x.obs)%*%t(x.obs)%*%y.obs
-    #beta.temp<-t(beta.temp)
-    thetavec.temp <- sample(theta(),n.na)
-    y.u<-rmvnorm(1,x.u%*%beta.temp + thetavec.temp,tau^2*diag(n.na))
-    
-    y[,i][is.na(y[,i])]<-y.u
+  if(anyNA(y) == TRUE) {
+    for (i in 1:nt) {
+      x.u<-matrix(c(x[,1][is.na(y[,i])],x[,2][is.na(y[,i])]),ncol=2)
+      y.obs<-y[,i][!is.na(y[,i])]
+      x.obs<-matrix(c(x[,1][!is.na(y[,i])],x[,2][!is.na(y[,i])]),ncol=2)
+      n.na<-length(y[,i]) - length(y.obs)
+      beta.temp<-rep(0,length(y.obs)) #initializing beta
+      beta.temp<-solve(t(x.obs)%*%x.obs)%*%t(x.obs)%*%y.obs
+      #beta.temp<-t(beta.temp)
+      thetavec.temp <- sample(theta(),n.na)
+      y.u<-rmvnorm(1,x.u%*%beta.temp + thetavec.temp,tau^2*diag(n.na))
+      
+      y[,i][is.na(y[,i])]<-y.u
+    }
   }
   
-  #MCMC Algorithm
+  
+  ##MCMC Algorithm
   for (i in 1:iters){
     
     #a)
+    #Generate theta vector
+    cluster_count<-0
+    for (i in 1:nt) {
+      thetavec[,i] <- sample(theta(),ns)
+      groupvec[,i] <- c(unique(thetavec[,i]),rep(NA, ns - length(unique(thetavec[,i]))))
+      cluster_count[i] <- sum(groupvec[,i] > 0,na.rm = TRUE)
+      for (j in 1:cluster_count[i]) {
+        wvec[thetavec == groupvec[j]] <- j
+      }
+    }
+    theta.ast <- unique.array(thetavec, MARGIN = 2)
+    T.ast <- length(unique.array(thetavec, MARGIN = 2))/ns
+    
+    ##FULL CONDITIONALS - below code can be useful later
     #Set Lambda
-    Lambda <- solve((tau^(-2)*diag(ns) + sigma^(-2)*solve(H)))
+#    Lambda <- solve((tau^(-2)*diag(ns) + sigma^(-2)*solve(H)))
     
     #Set q0, h
-    for (j in 1:nt){
-      q0[j]<-alpha*(det(Lambda))^(1/2)*exp(-0.5*tau^(-2)*(t(y[,j]-x%*%t(beta))%*%(diag(ns) - tau^(-2)*Lambda)%*%(y[,j]-x%*%t(beta)))) * ((2*pi*tau^2*sigma^2)^(ns/2)*det(H)^(1/2))^(-1)
-      htheta[,j] <- q0[j] * rmvnorm(1, tau^(-2)*(Lambda%*%(y[,j] - x%*%t(beta))),Lambda)
+#    for (j in 1:nt){
+#      #q0[j]<-alpha*(det(Lambda))^(1/2) * exp(-0.5*tau^(-2)*(t(y[,j]-x%*%t(beta))%*%(diag(ns) - tau^(-2)*Lambda)%*%(y[,j]#-x%*%t(beta)))) * ((2*pi*tau^2*sigma^2)^(ns/2)*det(chol(H)))^(-1)
+#      #Using log
+#      q0.temp <- log(alpha*det(chol(Lambda))) + -0.5*tau^(-2)*(t(y[,j]-x%*%t(beta))%*%(diag(ns) - tau^(-2)*Lambda)%*%(y[#,j]-x%*%t(beta))) + log(((2*pi*tau^2*sigma^2)^(ns/2)*det(chol(H)))^(-1))
+#      q0[j] <- exp(q0.temp)
+#      htheta[,j] <- q0[j] * rmvnorm(1, tau^(-2)*(Lambda%*%(y[,j] - x%*%t(beta))),Lambda)
+#      
+#      qj[,j]<-rmvnorm(1, x%*%t(beta) + htheta[,j],tau^(2)*diag(ns))
+#      denomvec[j]<-q0[j]+sum(rowSums(qj))
+#      thetavec[,j]<-  (1/(denomvec[j]))*(q0[j]*htheta[,j] + qj[,j])
+#    }
       
-      qj[,j]<-rmvnorm(1, x%*%t(beta) + htheta[,j],tau^(2)*diag(ns))
-      denomvec[j]<-q0[j]+sum(rowSums(qj))
-      thetavec[,j]<-  (1/(denomvec[j]))*(q0[j]*htheta[,j] + qj[,j])
-    }
-    #for (j in 1:nt){
-    #  qj[,j]<-rmvnorm(1, x%*%t(beta) + htheta[,j],tau^(2)*diag(ns))
-      #NOTE: we use htheta here we we do not introduce clustering in this code, s.t. each location is 'distinct'
-    #}
-    #for(j in 1:nt){
-    #  denomvec[j]<-q0[j]+sum(rowSums(qj))
-    #}
-    
-    #posterior theta
-    #for (j in 1:nt){
-    #  thetavec[,j]<-  (q0[j]*htheta[,j] + qj[,j])/(denomvec[j])
-    #}
-    
-    #b)
-    err<-matrix(0,nrow=ns,ncol=nt)
-    for (j in 1:nt){
-      err[,j]<-y[,j] - x%*%t(beta)
-    }
-    for (j in 1:noClusters){
-      thetaspec[,j]<-rmvnorm(1,tau^(-2)*solve(1*tau^(-2)*diag(ns)+sigma^(-2)*solve(H))%*% err[,j],solve(1*tau^(-2)*diag(ns)+sigma^(-2)*solve(H)))
-      #NOTE: 1* is normally T_j, not implementing clustering
-    }
+    ##FULL CONDITIONALS
+#    err<-matrix(0,nrow=ns,ncol=nt)
+#    for (j in 1:nt){
+#      err[,j]<-y[,j] - x%*%t(beta)
+#    }
+#    for (j in 1:noClusters){
+#      thetaspec[,j]<-rmvnorm(1,tau^(-2)*solve(1*tau^(-2)*diag(ns)+sigma^(-2)*solve(H))%*% err[,j],solve(1*tau^(-2)*diag#(ns)+sigma^(-2)*solve(H)))
+#    }
     
     #c)
-    ##TODO: IMPLEMENT THE CLUSTERING
+    ##TODO: IMPLEMENT THE CLUSTERING and GENERATE NEW SURFACE (Gelfand (2005) pg 1025)
+    newTheta <- thetavec[,ceiling(runif(1,0,nt))] ##UNSURE WHERE TO SAMPLE FROM
+    sum.T.ast <- 0
+    for (i in 1:nt) {
+      if (mean(thetavec[,i] == newTheta) == 1) {
+        sum.T.ast <- sum.T.ast + 1
+      }
+    }
+    theta_new <- alpha/(alpha + nt) * F0 + 1/(alpha + nt) * sum.T.ast
+    #clust_new <- unique(theta_new)
+    
     Sigma_b <-sd(y)^(2)*solve(t(x)%*%x)
     Sigma_tilde<-solve(solve(Sigma_b)+tau^(-2)*nt*t(x)%*%x)
-    #NOTE *nt* is here instead of sum of T, using stationary covariates
     sum_d <-0
     for (j in 1:nt){
       sum_d<-sum_d + t(x)%*%(y[,j] - thetavec[,j])
     }
+    
     beta_tilde<-Sigma_tilde%*%(solve(Sigma_b)%*%t(beta) + tau^(-2)*sum_d)
     beta<-rmvnorm(1,beta_tilde,Sigma_tilde)
     
@@ -151,21 +170,30 @@ gsdp_no_cluster<-function(y,x,
     for (j in 1:nt){
       sum_d2 <- sum_d2 + t(y[,j] - x%*%t(beta) - thetavec[,j])%*%(y[,j] -x%*%t(beta) - thetavec[,j])
     }
-    tau<-rgamma(1,taua+0.5*nt*noClusters,taub+0.5*sum_d2[1])
+    tau<-1/rgamma(1,taua+0.5*nt*ns,taub+0.5*sum_d2[1])
     
     #d)
     #update alpha
     eta_aux<-rbeta(1,alpha+1,nt)
-    p_d<-(1+noClusters-1)/(nt*(1-log(eta_aux))+1+noClusters -1) #a_alpha and b_alpha set as 1
-    alpha<-p_d*rgamma(1,1+noClusters,1-log(eta_aux)) + (1-p_d)*rgamma(1,1+noClusters-1,1-log(eta_aux))
+    p_d<-(1+sum.T.ast-1)/(nt*(1-log(eta_aux))+1+sum.T.ast -1) #a_alpha and b_alpha set as 1
+    alpha<-p_d*rgamma(1,1+sum.T.ast,1-log(eta_aux)) + (1-p_d)*rgamma(1,1+sum.T.ast-1,1-log(eta_aux))
     #update sigma
     sum_d3<-0
-    for (j in 1:nt){
-      sum_d3 <- sum_d3 + t(thetaspec[,j])%*%solve(H)%*%thetaspec[,j]
+    for (j in 1:T.ast){
+      sum_d3 <- sum_d3 + t(theta.ast[,j])%*%solve(H)%*%theta.ast[,j]
     }
-    sigma<-rgamma(1,siga+.5*nt*noClusters,sigb+.5*sum_d3[1])
+    sigma<-rgamma(1,siga+.5*nt*sum.T.ast,sigb+.5*sum_d3)
     #update phi
-    phi<-(det(H))^(-noClusters/2)*exp(-sum_d3/(2*sigma^(2)))
+    phi <- runif(1,0,bphi)
+    #phi<-(det(chol(H)))^(-sum.T.ast)*exp(-sum_d3/2*sigma^2)
+  
+    #for (i in 1:ns){
+    #  for (j in 1:ns){
+    #    H[i,j]<-exp(-phi*(sqrt((x[i,1] - x[j,1])^2 + (x[i,2]- x[j,2])^2)))
+    #  }
+    #}
+    F0<-rmvnorm(1,rep(0,ns),sigma*H)
+    theta<-dp(alpha,DiscreteDistribution(F0)) #redo theta
   }
 }
 

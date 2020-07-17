@@ -1,16 +1,19 @@
-testdat<-X646985
+#testdat<-X646985
 
 #normalize data to [0,1]
-#minLong<-min(testdat$LONGITUDE,na.rm = TRUE)
-#maxLong<-max(testdat$LONGITUDE,na.rm = TRUE)
-#minLat<-min(testdat$LATITUDE,na.rm = TRUE)
-#maxLat<-max(testdat$LATITUDE,na.rm = TRUE)
+minLong<-min(testdat$LONGITUDE,na.rm = TRUE)
+maxLong<-max(testdat$LONGITUDE,na.rm = TRUE)
+minLat<-min(testdat$LATITUDE,na.rm = TRUE)
+maxLat<-max(testdat$LATITUDE,na.rm = TRUE)
 
-#longVec<-(testdat$LONGITUDE - minLong)/(maxLong - minLong)
-#latVec<-(testdat$LATITUDE - minLat)/(maxLat - minLat)
+longVec<-(testdat$LONGITUDE - minLong)/(maxLong - minLong)
+latVec<-(testdat$LATITUDE - minLat)/(maxLat - minLat)
 
 
-modDat<-data.frame(station = testdat$STATION,date = testdat$DATE,longVec = testdat$LONGITUDE,latVec = testdat$LATITUDE,TPCP = testdat$TPCP)
+#modDat<-data.frame(station = testdat$STATION,date = testdat$DATE,longVec = testdat$LONGITUDE,latVec = testdat$LATITUDE,TPCP = testdat$TPCP)
+
+#Standardized data to [0,1]
+modDat<-data.frame(station = testdat$STATION,date = testdat$DATE,longVec = longVec,latVec = latVec,TPCP = testdat$TPCP)
 
 nRep<-length(unique(modDat$date))
 nLoc<-length(unique(testdat$STATION))
@@ -36,5 +39,9 @@ for (i in 1:nLoc){
   x[i,2]<-mean(modDat$latVec[stations[i]==modDat$station],na.rm=TRUE)
 }
 
+y.orig<-y
+
 #gsdp_no_cluster<-function(y,x,spatial=T,varyparam=rep(F,3),nk=5,iters=1000,burn=100,verbose=10,thin=1,mx.siga,mx.sigb,mx.taua,mx.taub, noClusters = NA)
 gsdp_no_cluster(y,x,mx.siga=2, mx.sigb = 2,mx.taua = 2,mx.taub = 2)
+
+SSB(y,z=x)
