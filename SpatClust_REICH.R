@@ -1,3 +1,5 @@
+##https://www4.stat.ncsu.edu/~bjreich/software Reich BJ, Bondell HD (2011). A spatial Dirichlet process mixture model for clustering population genetic data. Biometrics
+
 
 library(MCMCpack)
 
