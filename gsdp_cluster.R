@@ -1,8 +1,4 @@
-# Dirichlet process to draw a random distribution F from a prior F0
-#  alpha determines the similarity with the prior guess
-#  F0 is the cdf of the prior guess (an object of class "DiscreteDistribution")
-
-##Useful Functions
+library(MCMCpack)
 library(distr)
 library(mvtnorm)
 
@@ -56,15 +52,26 @@ dp.post <-function(alpha, F0, n, T.vec, theta.exist, n.terms = 1e3, size = 1e4) 
   Fnew[,index]
 }
 
-##GSDP Function - MCMC Posterior Simulation Model
-##This function uses in-model Kriging (discussed in end of Section 3 in Gelfand (2005)) to 'fill in' missing data
+#compute the stick-breaking weights
+makeprobs<-function(v){ 
+  N<-length(v)
+  probs<-v
+  probs[2:N]<-probs[2:N]*cumprod(1-v[2:N-1])
+  probs}
 
-##function without cluster implementation
-gsdp<-function(y,x,
-                 spatial=T,varyparam=rep(F,3),nk=5,
-                 iters=1000,burn=400,verbose=10,thin=1,mx.siga,mx.sigb,mx.taua,mx.taub, mx.bphi = 0.1,
-                 a.alpha = 1, b.alpha = 1,
-                 display = 5, K = 25, loc){
+#generate categorical variables:
+rcat<-function(ndraws,prob){
+  prob[is.na(prob)]<-0
+  (1:length(prob))%*%rmultinom(ndraws,1,prob)
+}
+
+
+#Function w/ cluster analysis
+gsdp.cluster <- function(y,x,
+               spatial=T,varyparam=rep(F,3),nk=5,
+               iters=1000,burn=400,verbose=10,thin=1,mx.siga,mx.sigb,mx.taua,mx.taub, mx.bphi = 0.1,
+               a.alpha = 1, b.alpha = 1,
+               display = 5, K = 25) {
   #y:         data (ns x nt)
   #x:         spatial coordinates (ns x 2)
   #spatial:   model the resids as spatially correlated?
@@ -76,7 +83,6 @@ gsdp<-function(y,x,
   #verbose:   how often to make updates
   #thin:      Degree of thinning
   #K:         Prior number of spatial clusters
-  #loc: location of interest for density plot
   
   ns<- nrow(y) #number of locations
   nt<- ncol(y) #number of years/replications
@@ -84,7 +90,7 @@ gsdp<-function(y,x,
   
   count<-0
   clustercount<-rep(0,iters)
-
+  
   #initial values
   beta<-rep(0,xdim) #initializing beta
   beta<-solve(t(x)%*%x)%*%t(x)%*%rowMeans(y,na.rm=TRUE)
@@ -131,23 +137,34 @@ gsdp<-function(y,x,
   thetaspec <- matrix(NA,nrow=ns,ncol=nt)
   groupvec <- matrix(NA,nrow=ns,ncol=nt)
   
-  #Within-replicate Kriging using the initialized theta, tau and beta
-  #if(anyNA(y) == TRUE) {
-  #  for (i in 1:nt) {
-  #    x.u<-matrix(c(x[,1][is.na(y[,i])],x[,2][is.na(y[,i])]),ncol=2)
-  #    y.obs<-y[,i][!is.na(y[,i])]
-  #    x.obs<-matrix(c(x[,1][!is.na(y[,i])],x[,2][!is.na(y[,i])]),ncol=2)
-  #    n.na<-length(y[,i]) - length(y.obs)
-  #    beta.temp<-rep(0,length(y.obs)) #initializing beta
-  #    beta.temp<-solve(t(x.obs)%*%x.obs)%*%t(x.obs)%*%y.obs
-  #    #beta.temp<-t(beta.temp)
-  #    thetavec.temp <- sample(theta(),n.na)
-  #    y.u<-rmvnorm(1,x.u%*%beta.temp + thetavec.temp,tau^2*diag(n.na))
-  #    
-  #    y[,i][is.na(y[,i])]<-y.u
-  #  }
-  #}
   points.1 <- rep(NA, iters)
+  
+  ##Priors for spatial clustering (weights and state space model)
+  clustervec <- rep(0, ns)
+  K <- 5 #prior for finite cluster
+  U.cat <- rbeta(K,1,.25) #prior for b.U
+  clustervec <- rcat(K, U.cat)
+  
+  #Prior for number of clusters
+  K <- length(unique(clustervec))
+  beta.vec <- c(0, rnorm( n = (K - 1), mean = 0, sd = 1)) ##NOT SURE ABOUT THE VARIANCE PRIOR HERE
+  G <- matrix(rep(0, K*K), ncol = K)
+  g.diag <- runif(K, -1, 1)
+  diag(G) <- g.diag
+  
+  #Priors for phi term
+  rho.vec <- c(0,runif(K-1, -1, 1))
+  cluster.scale <- 1
+  eta.Sigma <- diag(rgamma(K,2,1)^(-1))
+  phi.mat <- matrix(rep(0, ns*K), ncol = K)
+  lambda.vec <- rgamma(K,2,1)^(-1)
+  
+  phi.mat[,1] <- rmvnorm(1, rep(0,ns), lambda.vec[k]*H)
+  for (k in 2:K) {
+    phi.mat[,k] <- rho.vec[k]*phi.mat[,k-1] + rmvnorm(1, rep(0,ns), lambda.vec[k]*H)
+  }
+  
+  #Need prior for the z??
   
   ##MCMC Algorithm
   for (i in 1:iters){
@@ -159,27 +176,14 @@ gsdp<-function(y,x,
     Lambda <- solve((tau^(-2)*diag(ns) + sigma^(-2)*solve(H)))
     
     #Set q0, h
-    #q0<-alpha*(det(Lambda))^(1/2) * exp(-0.5*tau^(-2)*(t(y[,j]-x%*%t(beta))%*%(diag(ns) - tau^(-2)*Lambda)%*%(y[,j]-x%*%t(beta)))) * ((2*pi*tau^2*sigma^2)^(ns/2)*det(chol(H)))^(-1)
-#    q0.temp <- log(alpha*det(chol(Lambda))) + -0.5*tau^(-2)*(t(y[,j]-x%*%t(beta))%*%(diag(ns) - tau^(-2)*Lambda)%*%(y[,j]-x%*%t(beta))) + log(((2*pi*tau^2*sigma^2)^(ns/2)*det(chol(H)))^(-1))
     q0 <- alpha
     
     htheta<-rmvnorm(10000, tau^(-2)*(Lambda%*%(rowMeans(y) - x%*%t(beta))), Lambda)
     
     #Generate theta vector (DP SAMPLING)
-    ## TODO: USE DPpackage, likely LDDPdensity()
-   #cluster_count<-0
-   #for (k in 1:nt) {
-   #  thetavec[,k] <- sample(theta(),ns)
-   #  groupvec[,k] <- c(unique(thetavec[,k]),rep(NA, ns - length(unique(thetavec[,k]))))
-   #  cluster_count[k] <- sum(groupvec[,k] > 0,na.rm = TRUE)
-   #  for (j in 1:cluster_count[k]) {
-   #    wvec[thetavec == groupvec[j]] <- j
-   #  }
-   #}
-    ##TODO: Use weigths h(theta) and q0 in the posterior DP sampling
     theta.post <- dp.post(alpha = q0, F0 = htheta, n = sum(T.ast), T.vec = T.ast, theta.exist =theta.exist)[, sample(1:1000,nt)]
     theta.exist <- unique(matrix(c(theta.exist,unique(theta.post,MARGIN = 2)),nrow = ns), MARGIN = 2) #redefine effects
-
+    
     T.length.old <- length(T.ast)
     T.ast<- c(T.ast, rep(0, max(ncol(theta.exist) - T.length.old,0)))
     for (k in 1:ncol(theta.exist)) {
@@ -190,21 +194,9 @@ gsdp<-function(y,x,
     }
     
     #b)
-    #theta.ast <- unique.array(thetavec, MARGIN = 2)
-    #T.ast <- length(unique.array(thetavec, MARGIN = 2))/ns
 
     #c)
-    ##TODO: IMPLEMENT THE CLUSTERING and GENERATE NEW SURFACE (Gelfand (2005) pg 1025)
-    #newTheta <- thetavec[,ceiling(runif(1,0,nt))] ##UNSURE WHERE TO SAMPLE FROM
-    #sum.T.ast <- 0
-    #for (j in 1:nt) {
-    #  if (mean(thetavec[,j] == newTheta) == 1) {
-    #    sum.T.ast <- sum.T.ast + 1
-    #  }
-    #}
-    #theta_new <- alpha/(alpha + nt) * F0 + 1/(alpha + nt) * sum.T.ast
-    #clust_new <- unique(theta_new)
-    
+
     sum.T.ast<-length(T.ast)
     
     Sigma_b <- sd(y)^(2)*solve(t(x)%*%x)
@@ -244,70 +236,53 @@ gsdp<-function(y,x,
     }
     theta<-theta.post #redo theta
     
-    ##
-    #clustercount[i] <- length(T.ast)
+    ##Spatial Clustering using the State Space Model
+    #y_t = H_t z_t + e_t
+    #z_t = G z_t-1 + eta_t
+    #Posterior Computation
+    weights <- matrix(rep(0, ns*K), ncol = K)
+    H.mat <- matrix(rep(0,ns*K), ncol = K)
+    for (t in 1:nt) {
+      weights[t,] <- exp(1*beta.vec + phi.mat[t,])/sum(exp(1*beta.vec + phi.mat[t,]))
+      H.mat[t,] <- t(rmultinom(1, 1, prob = weights[t,]))
+    }
+    #Unsure what G is
     
-    #DEBUG
-    #if(clustercount[i] == 0) {
-    #  print(newTheta)
-    #}
+    
+    clustervec.post <- c(1)
+    
+    #given some cluster count K, we have K different beta's, and cluster specific spatio-temporal random effects (K number of these)
+    #beta.vec is some px1 vector at each replicate t
+    #x(s) in Paci-Finazzi (2017) is the vector of covariates, here we use y (at each t)
+    #phi.vec is the Autoregressive time series, where the random term comes from the independently distributed spatial covariance function
+    #K is number of clusters in this iteration
+    
+    ###MAPPING
+    ##quilt.plot()
+    ##library(LatticeKrig) # quilt.plot
+    ##library(maps) # map()
+    
+    
+    
     
     #rbPal <- colorRampPalette(c('red','blue'))
     theta.pred <- theta.exist[,sample(seq(from = 1, to = length(T.ast), by = 1), size = 1,prob = T.ast/sum(T.ast))]
     #thetaCol <- rbPal(10)[as.numeric(cut(x %*% t(beta) + theta.pred ,breaks = 10))]
-
-    points.1[i] <- (x %*% t(beta) + theta.pred)[loc]
     
-    count<-count + 1
-    #hist(y[4,], freq = FALSE, xlim = c(-1,1))
-    if(count == display){
-      #par(mfrow = c(2,1))
-      #plot(clustercount)
-      plot(density(points.1[1:i]))
-      count <- 0
-    }
+    print(clustervec.post)
     
+ #   count<-count + 1
+ #   #hist(y[4,], freq = FALSE, xlim = c(-1,1))
+ #   if(count == display){
+ #     #par(mfrow = c(2,1))
+ #     plot(density(points.1[1:i]))
+ #     count <- 0
+ #   }
+ #   
+ # }
+ # 
+ # plot(density(points.1[burn:iters]))
+  
   }
   
-  plot(density(points.1[burn:iters]))
-  return(points.1[burn:iters])
-  
 }
-
-
-##FULL CONDITIONALS - below code can be useful later
-#Set Lambda
-#    Lambda <- solve((tau^(-2)*diag(ns) + sigma^(-2)*solve(H)))
-
-#Set q0, h
-#    for (j in 1:nt){
-#      #q0[j]<-alpha*(det(Lambda))^(1/2) * exp(-0.5*tau^(-2)*(t(y[,j]-x%*%t(beta))%*%(diag(ns) - tau^(-2)*Lambda)%*%(y[,j]#-x%*%t(beta)))) * ((2*pi*tau^2*sigma^2)^(ns/2)*det(chol(H)))^(-1)
-#      #Using log
-#      q0.temp <- log(alpha*det(chol(Lambda))) + -0.5*tau^(-2)*(t(y[,j]-x%*%t(beta))%*%(diag(ns) - tau^(-2)*Lambda)%*%(y[#,j]-x%*%t(beta))) + log(((2*pi*tau^2*sigma^2)^(ns/2)*det(chol(H)))^(-1))
-#      q0[j] <- exp(q0.temp)
-#      htheta[,j] <- q0[j] * rmvnorm(1, tau^(-2)*(Lambda%*%(y[,j] - x%*%t(beta))),Lambda)
-#      
-#      qj[,j]<-rmvnorm(1, x%*%t(beta) + htheta[,j],tau^(2)*diag(ns))
-#      denomvec[j]<-q0[j]+sum(rowSums(qj))
-#      thetavec[,j]<-  (1/(denomvec[j]))*(q0[j]*htheta[,j] + qj[,j])
-#    }
-
-##FULL CONDITIONALS
-#    err<-matrix(0,nrow=ns,ncol=nt)
-#    for (j in 1:nt){
-#      err[,j]<-y[,j] - x%*%t(beta)
-#    }
-#    for (j in 1:noClusters){
-#      thetaspec[,j]<-rmvnorm(1,tau^(-2)*solve(1*tau^(-2)*diag(ns)+sigma^(-2)*solve(H))%*% err[,j],solve(1*tau^(-2)*diag#(ns)+sigma^(-2)*solve(H)))
-#    }
-
-
-#old phi update
-
-#phi<-(det(chol(H)))^(-sum.T.ast)*exp(-sum_d3/2*sigma^2)
-
-#for (i in 1:ns){
-#  for (j in 1:ns){
-#    H[i,j]<-exp(-phi*(sqrt((x[i,1] - x[j,1])^2 + (x[i,2]- x[j,2])^2)))
-#  }
-#}

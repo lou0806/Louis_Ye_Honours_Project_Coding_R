@@ -4,7 +4,7 @@
 library(MCMCpack)
 
 #compute the stick-breaking weights
-makeprobs<-function(v){ 
+makeprobs<-function(v){
    N<-length(v)
    probs<-v
    probs[2:N]<-probs[2:N]*cumprod(1-v[2:N-1])
