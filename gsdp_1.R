@@ -41,7 +41,6 @@ dp.post <-function(alpha, F0, n, T.vec, theta.exist, n.terms = 1e3, size = 1e4) 
       T.vec <- c(T.vec,1)
       theta.unique <- matrix(c(theta.unique, Fnew[,i]),nrow = length(F0.vec[,1]))
     } else {
-      
       index.temp <- sample(1:length(T.vec),size = 1, prob = c(T.vec))
       T.vec[index.temp] <-T.vec[index.temp] + 1
       Fnew[,i] <- theta.unique[,index.temp]
@@ -64,7 +63,7 @@ gsdp<-function(y,x,
                  spatial=T,varyparam=rep(F,3),nk=5,
                  iters=1000,burn=400,verbose=10,thin=1,mx.siga,mx.sigb,mx.taua,mx.taub, mx.bphi = 0.1,
                  a.alpha = 1, b.alpha = 1,
-                 display = 5, K = 25, loc){
+                 display = 5, K = 25, loc) {
   #y:         data (ns x nt)
   #x:         spatial coordinates (ns x 2)
   #spatial:   model the resids as spatially correlated?
@@ -108,6 +107,7 @@ gsdp<-function(y,x,
       H[i,j]<-exp(-phi*(sqrt((x[i,1] - x[j,1])^2 + (x[i,2]- x[j,2])^2)))
     }
   }
+  
   F0<-rmvnorm(10000,rep(0,ns),sigma*H)
   theta<-dp.mv(alpha = alpha, F0 = F0)[,sample(1:1000,nt)] #initialize theta, ~ iid G^(n)
   theta.exist <- unique(theta,MARGIN = 2) #initialize clusters
@@ -218,7 +218,7 @@ gsdp<-function(y,x,
     beta<-rmvnorm(1,beta_tilde,Sigma_tilde)
     
     sum_d2<-0
-    for (j in 1:nt){
+    for (j in 1:nt) {
       sum_d2 <- sum_d2 + t(y[,j] - x%*%t(beta) - theta.post[,j])%*%(y[,j] -x%*%t(beta) - thetavec[,j])
     }
     tau<-1/rgamma(1,taua+0.5*nt*ns,taub+0.5*sum_d2[1])

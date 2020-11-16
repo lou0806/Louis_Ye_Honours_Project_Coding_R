@@ -50,8 +50,8 @@ rcat<-function(prob){
 
 
 #The whole Shebang!
-SSB.mod<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=10,
-              runs=5000,burn=1000,display=10){
+SSB.mod<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
+              runs=1000,burn=300,display=10) {
   #y:       data
   #x:       covariates
   #z:       n x 2 matrix of coordinates, scaled to [0,1]
@@ -74,16 +74,20 @@ SSB.mod<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=10,
   if(min(z)<0 | max(z)>1){print("THE SPATIAL COORDINATES ARE NOT STANDARDIZED!")}   
   
   #initial values
-  beta<-rep(0,p)
-  v<-rep(.9,n.terms)
-  sige<-rep(mx.sige/2,n.terms)
-  taue<-1/sige^2
-  mu<-rep(0,n.terms)
-  sigs<-mx.sigs/2
-  taumu<-1/sigs^2
-  knot<-matrix(runif(2*n.terms,0,1),2,n.terms)
-  rho<-.5
-  g<-rep(1,n)
+  beta <- rep(mean(y),p)
+  v <- rep(.9,n.terms) #originally .9, changing to influence initial clustering
+  sige <- rep(mx.sige/2,n.terms)
+  taue <- 1/sige^2
+  mu <- rep(0,n.terms)
+  sigs <- mx.sigs/2
+  taumu <- 1/sigs^2
+  knot <- matrix(runif(2*n.terms,0,1),2,n.terms)
+  rho <- .3 #originally .5, influences clustering by space
+  
+  g.mat <- matrix(rep(1,n*nt), ncol = nt) #membership
+  g <- g.mat
+  y.mat <- y
+  
   vs<-matrix(0,n,n.terms)
   for(k in 1:n.terms){
     vs[,k]<-onevs(z,rho,knot[,k],v[k])
@@ -94,13 +98,19 @@ SSB.mod<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=10,
   count<-afterburn<-0
   keeprho<-rep(0,runs)
   keepbeta<-matrix(0,runs,p)
+  keepmn <- rep(0, runs)
+  keepmu <- rep(0, runs)
+  keepr <- rep(0, runs)
+  cluster.count <- rep(0, runs)
   
-  for(i in 1:5000){
+  for(i in 1:runs) {
     
     #Update beta
     COV<-solve(t(x)%*%diag(taue[g])%*%x)
     mn<-COV%*%t(x)%*%diag(taue[g])%*%(y-mu[g])
-    beta<-mn + t(chol(COV))
+    beta <- mean(y) #use mean(y) when there are no covariates
+      ##mean(y)
+      ##mn + t(chol(COV))
     r<-y-x%*%beta
     
     for(j in 1:n.terms){
@@ -112,7 +122,8 @@ SSB.mod<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=10,
       }
       
       #update sige
-      cansige<-sige;cansige[j]<-rnorm(1,sige[j],.1)
+      cansige<-sige
+      cansige[j]<-rnorm(1,sige[j],.1)
       if(sum(g==j)>0 & cansige[j]>0 & cansige[j]<mx.sige){
         MHrate<-sum(dnorm(r[g==j],mu[j],cansige[j],log=T)-
                       dnorm(r[g==j],mu[j],sige[j],log=T))
@@ -125,6 +136,7 @@ SSB.mod<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=10,
     }
     
     #update sigs:
+    oldg <- g
     cansigs<-rnorm(1,sigs,.1)
     if(cansigs>0 & cansigs<mx.sigs){
       MHrate<-sum(dnorm(mu,0,cansigs,log=T)-
@@ -134,18 +146,23 @@ SSB.mod<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=10,
     taumu<-1/sigs^2
     
     #update g
-    for(s in 1:n){
-      cang<-g;cang[s]<-rcat(probs[s,])
+    for(s in 1:n.terms){
+      cang<-g
+      cang[s]<-rcat(probs[s,])
       MHrate<-dnorm(r[s],mu[cang[s]],sige[cang[s]],log=T)-
         dnorm(r[s],mu[g[s]],sige[g[s]],log=T)
-      if(runif(1,0,1)<exp(MHrate)){g<-cang} 
+      if(runif(1,0,1)<exp(MHrate)){
+        g<-cang
+      } 
     }
     
     
     #update rho:
     canrho<-runif(1,0,1)
     canvs<-vs
-    for(k in 1:n.terms){canvs[,k]<-onevs(z,canrho,knot[,k],v[k])}
+    for(k in 1:n.terms){
+      canvs[,k] <- onevs(z,canrho,knot[,k],v[k])
+    }
     canprobs<-makeprobs(canvs)
     MHrate<-sum(log(canprobs[cbind(1:n,g)])-
                   log(probs[cbind(1:n,g)]))     
@@ -172,32 +189,41 @@ SSB.mod<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=10,
     }
     
     #update knots:
-    for(j in 1:2){for(k in 1:n.terms){
-      canvs<-vs;canknot<-knot
-      canknot[j,k]<-rnorm(1,knot[j,k],.1)
-      if(canknot[j,k]> 0 & canknot[j,k]<1){
-        canvs[,k]<-onevs(z,rho,canknot[,k],v[k])
-        canprobs<-makeprobs(canvs)
-        MHrate<-sum(log(canprobs[cbind(1:n,g)])-
-                      log(probs[cbind(1:n,g)]))     
-        if(runif(1,0,1)<exp(MHrate)){
-          knot<-canknot
-          vs<-canvs;probs<-canprobs
+    for(j in 1:2){
+      for(k in 1:n.terms){
+        canvs<-vs
+        canknot<-knot
+        canknot[j,k]<-rnorm(1,knot[j,k],.1)
+        if(canknot[j,k]> 0 & canknot[j,k]<1){
+          canvs[,k]<-onevs(z,rho,canknot[,k],v[k])
+          canprobs<-makeprobs(canvs)
+          MHrate<-sum(log(canprobs[cbind(1:n,g)])-
+                        log(probs[cbind(1:n,g)]))     
+          if(runif(1,0,1)<exp(MHrate)){
+            knot<-canknot
+            vs<-canvs;probs<-canprobs
+          }
         }
       }
-    }}
+    } #Keep track of the log-likelihood
     
     keeprho[i]<-rho
     keepbeta[i,]<-beta
+    keepmn[i] <- mn
+    keepr[i] <- mean(r)
+    cluster.count[i] <- length(unique(g))
     
     count<-count+1
     if(count==display){
-      par(mfrow=c(2,1))
-      plot(keepbeta[,1])
+      #par(mfrow=c(2,1))
+      par(mfrow=c(1,1))
+      #plot(keepbeta[,1])
       plot(keeprho[1:i])
+      #plot(keepr[1:i])
+      plot(cluster.count[1:i])
       sdmu<-(mu-min(mu))/(max(mu)-min(mu))
-      plot(z[,1],z[,2],col=g)
-      plot(knot[,1],knot[,2])
+      plot(z[,1],z[,2],col=g, type = 'p', pch = 19)
+      #plot(knot[,1],knot[,2])
       count<-0
     }
     
@@ -215,6 +241,8 @@ SSB.mod<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=10,
   truncprob<-sumtp/afterburn
   
   list(truncprob=truncprob,beta=keepbeta[burn:runs,],
-       rho=keeprho[burn:runs],post.mn=post.mn,post.sd=post.sd, membership = g)
+       rho=keeprho[burn:runs], residuals = keepr[burn:runs], post.mn=post.mn,post.sd=post.sd, 
+       membership = g, knot = knot, mu = mu, taue = taue, sige = sige, keepmn = keepmn, 
+       cluster.count = cluster.count, old.membership = oldg)
 }
 
