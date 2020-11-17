@@ -1,10 +1,15 @@
 #Generated Data
 library(ggplot2)
+library(LatticeKrig) # quilt.plot
+library(maps) # map()
+library(Rcpp)
+
+set.seed(2)
 
 n = 100 #No. of Locations
 M = 5 #No. of Observations
 #A=2
-n.clust = 2 #"Correct" Number of Clusters
+n.clust = 3 #"Correct" Number of Clusters
 
 clusters_dist <- matrix(rep(seq(from = 0, to = 1, length.out = n.clust),2),ncol = 2)
   #matrix(c(runif(n.clust,0,1),runif(n.clust,0,1)),ncol = 2)
@@ -20,11 +25,10 @@ beta<-matrix(c(1,1),ncol = 2)
 y<-matrix(rep(0,n*M),ncol = M)
 tau<-1
 
-time.effect <- 2
+time.effect <- seq(from = 0, to = 10, length.out = M)
 for (i in 1:n){
   temp.dex <- which.min((x[i,1] - clusters_dist[,1])^2 + (x[i,2] - clusters_dist[,2])^2)
-  y[i,] = rnorm(M,mean=beta%*%x[i,] + clust_theta[temp.dex],sd=tau^2)
-  time.effect <- time.effect + time.effect
+  y[i,] = rnorm(M,mean=beta%*%x[i,] + clust_theta[temp.dex],sd=tau^2) + time.effect
 }
 
 points(clusters_dist, type = 'p')
@@ -34,18 +38,41 @@ x <- matrix(rep(1, n), ncol = 1)
 
 nt <- ncol(y)
 ns <- nrow(y)
-g.mat <- matrix(rep(0,ns*nt), ncol = nt) #membership
+g.true <- matrix(rep(0,ns*nt), ncol = nt) #membership
 
-#Dynamic
+##Dynamic
 output.dynamic <- SSB.dynamic(y =  y, z = z, x = x, n.terms = n, DOF=1, mx.sige=2, mx.sigs=2, runs = 300, burn = 100)
+
+plot(z[,1],z[,2],col=output.dynamic$membership[,1], type = 'p', pch = 19)
+
+quilt.plot(z[,1],z[,2],output.dynamic$probs.cluster1[,1],
+           col= colorRampPalette(c('dark blue','grey90','dark red'))(100),
+           xlim = c(0,1), ylim = c(0,1))
+
+quilt.plot(z[,1],z[,2],output.dynamic$probs.last.cluster,
+           col= colorRampPalette(c('dark blue','grey90','dark red'))(100),
+           xlim = c(0,1), ylim = c(0,1))
+
+plot(z[,1],z[,2],col=output.dynamic$membership[,5], type = 'p', pch = 19)
+
+
+output.dynamic$rho.ts[1:length(unique(output.dynamic$membership[,1]))]
 
 output.dynamic$probs.cluster1
 output.dynamic$dynamic.effect
-output.dynamic$membership
+output.dynamic$membership[,1]
 
-output <- SSB.mod(y =  matrix(y[,1],ncol = 1), z = z, x = x, n.terms = n, DOF=1,mx.sige=2,mx.sigs=2)
+output.dynamic$rho.ts[1:length(unique(output.dynamic$membership[,1]))]
+
+
+
+
+
+
+output <- SSB.mod(y =  matrix(y[,1],ncol = 1), z = z, x = x, n.terms = n, DOF=1,mx.sige=1,mx.sigs=1)
 
 points(clusters_dist, type = 'p')
+
 plot(z[,1],z[,2],col=output$membership, type = 'p', pch = 19)
 points(clusters_dist, type = 'p')
 #unique(output$membership)

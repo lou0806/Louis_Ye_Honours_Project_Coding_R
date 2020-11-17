@@ -1,8 +1,8 @@
 library(LatticeKrig) # quilt.plot
 library(maps) # map()
 library(Rcpp)
-Sys.setenv("PKG_CXXFLAGS"="-std=c++11") # enable c++11, for RcppArmadillo
-source("lui_Arthur_Code/plotPost.R",chdir=T)
+#Sys.setenv("PKG_CXXFLAGS"="-std=c++11") # enable c++11, for RcppArmadillo
+#source("lui_Arthur_Code/plotPost.R",chdir=T)
 s_new <- read.csv("Data_rainfall/predlocs.dat")
 set.seed(1)
 

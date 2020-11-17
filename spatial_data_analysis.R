@@ -1,3 +1,5 @@
+#Data cleaning method adapted from http://luiarthur.github.io/sdp
+
 library(LatticeKrig) # quilt.plot
 library(maps) # map()
 library(Rcpp)

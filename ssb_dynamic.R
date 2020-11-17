@@ -64,6 +64,18 @@ exp.H <- function (decay,z) {
   return(Exp.Mat)
 }
 
+order.allocation <- function(mat) {
+  nt <- ncol(mat)
+  for (t in 1:nt) {
+    temp <- 1
+    for (i in sort(unique(mat[,t]))) {
+      mat[,t][mat[,t] == i] <- temp
+      temp <- temp + 1
+    }
+  }
+  return(mat)
+}
+
 #The whole Shebang!
 SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
                       runs=1000,burn=300,display=10) {
@@ -252,44 +264,70 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
       knot.mat[,,t] <- knot
     
       probs.cluster1[,t] <- probs[,1]
+      
+      if(t == nt) {
+        probs.last.cluster <- probs[,g.mat[1,nt]]
+      }
     }
     
     #update Paci-Finazzi:
     #separate the components
     #Keeping a track of knots (dynamic)
+    
+    #order g.mat for the Paci-Finazzi time series
+    g.mat.paci <- order.allocation(g.mat)
+    
+    phi.ts.old <- phi.ts #Debug term
+    
     n.clust <- rep(0, nt)
-    knot.clust <- array(rep(knot, nt), dim = c(2, max(g.mat), nt))
-    max.clust <- max(max(g.mat),2)
-    phi.ts <- matrix(rep(0, max.clust*nt), ncol = nt)
+    max.clust <- max(max(length(unique(as.vector(g.mat.paci)))),2)
+    max.clust.knot <- max(max(length(unique(as.vector(g.mat)))),2)
+    
+    knot.clust <- array(rep(knot, nt), dim = c(2, max.clust.knot, nt))
+    phi.ts <- matrix(rep(0, max.clust.knot*nt), ncol = nt)
     phi.effect <- matrix(rep(0, nt*ns), ncol = nt)
+    temp.length <- rep(0, nt)
     if(length(rho.ts) < max.clust) rho.ts <- c(rho.ts, rep(0, (max.clust - length(rho.ts))))
     
     for (t in 1:nt) {
-      n.clust[t] <- length(unique(g.mat[,t]))
-      temp.length <- max(g.mat) - ncol(knot.mat[,,t][,unique(g.mat[,t])])
-      temp.knot <- cbind(knot.mat[,,t][,unique(g.mat[,t])] , matrix(rep(0.5, (temp.length*2)), nrow = 2))
+      n.clust[t] <- length(unique(g.mat.paci[,t]))
+      temp.length[t] <- max.clust.knot - n.clust[t]#ncol(knot.mat[,,t][,unique(g.mat[,t])])
+      if (temp.length[t] > 0){
+        temp.knot <- cbind(knot.mat[,,t][,unique(g.mat[,t])] 
+                           , matrix(rep(0.5, (temp.length[t]*2)), nrow = 2))
+      } else {
+        temp.knot <- knot.mat[,,t][,unique(g.mat[,t])]
+      }
       knot.clust[,,t] <- temp.knot
     }
-
-    phi.ts[,1] <- rmvnorm(1, rep(0, max.clust), lambda[1]*exp.H(decay, t(knot.clust[,,1] )))
-    
-    #Unique random effects
-    temp.H <- exp.H(decay, t(knot.clust[,,j] ))
-    for(j in 2:nt) {
-      phi.ts[,j]<-rho.ts[j]*phi.ts[,j-1] + rmvnorm(1, rep(0, max.clust), lambda[j]*temp.H)
+    if (max(temp.length) > 0) {
+      lambda <- c(lambda, rep(0.1, max(temp.length)))
     }
-    
+
+    #Unique random effects 1st time round
+    phi.ts[,1] <- rmvnorm(1, rep(0, max.clust.knot), lambda[1]*exp.H(decay, t(knot.clust[,,1] )))
+    for(k in 2:nt) {
+      for (l in 1:max.clust){
+        temp.H <- exp.H(decay, t(knot.clust[,,k] ))
+        temp.mat <- rmvnorm(1, rep(0, max.clust.knot), lambda[l]*temp.H)
+        phi.ts[l,k]<-rho.ts[k]*phi.ts[l,k-1] + temp.mat[l]
+      }
+    }
+ 
     #Matrix of dynamic random effects
     for (j in 1:nt) {
-      phi.effect[,j] <- phi.ts[,j][g.mat[,j]]
+      phi.effect[,j] <- phi.ts[,j][g.mat.paci[,j]]
     }
 
     #Update lambda
     phi.temp <- cbind(phi.effect[,2 : (nt)], rep(0, nt))
+    lambda.old <- lambda #Debug term
+    lambda <- rep(0, max.clust)
+    
     for (j in 1:max.clust) {
       lambda[j] <- rgamma(1, 1 + nt*ns/2, 1 + 0.5 * (t(rowSums(phi.effect - phi.temp*rho.ts[j])) %*% solve(H) %*% rowSums(phi.effect - phi.temp*rho.ts[j]) ) ) ^ (-1)
     }
-  
+
     #update the rho.ts
     for (j in 1:max.clust) {
      v.temp <- 1/lambda[j] * t(phi.effect[,(nt-1)]) %*% solve(H) %*% phi.effect[,(nt-1)] + 10^(-4)
@@ -299,9 +337,7 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
      rho.ts[j] <- rho.temp
     }
     
-    
     ##General updating/recording
-        
     keeprho[i]<-rho
     keepbeta[i,]<-beta[,1]
     cluster.count[i] <- length(unique(g.mat[,1]))
@@ -330,6 +366,6 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
   truncprob<-sumtp/afterburn
   
   list(truncprob=truncprob,beta=keepbeta[burn:runs,],
-       rho=keeprho[burn:runs],post.mn=post.mn,post.sd=post.sd, membership = g.mat, mu = mu.mat[1,], knot.1 = knot.mat[,,1], dynamic.effect = phi.effect, dynamic.unique = phi.ts, probs.cluster1 = probs.cluster1)
+       rho=keeprho[burn:runs],post.mn=post.mn,post.sd=post.sd, membership = g.mat, mu = mu.mat[1,], knot.1 = knot.mat[,,1], dynamic.effect = phi.effect, dynamic.unique = phi.ts, probs.cluster1 = probs.cluster1, rho.ts = rho.ts, probs.last.cluster = probs.last.cluster)
 }
 

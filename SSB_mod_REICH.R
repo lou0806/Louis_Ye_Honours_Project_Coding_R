@@ -1,3 +1,5 @@
+#Adapted from https://www4.stat.ncsu.edu/~bjreich/code/SSB.R
+
 #############################################################################
 # Do MCMC sampling for the spatial stick-breaking model
 #    Here's the model:
