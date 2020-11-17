@@ -1,27 +1,14 @@
-#############################################################################
-# Do MCMC sampling for the spatial stick-breaking model
-#    Here's the model:
-#    
-#    y[s] ~ N(x*beta+mu[g[s]],sige[g[s])   
-#    mu[k]~dnorm(sigs), k=1,...n.terms
-#    sige[1],...,sige[n.terms],sigs~dunif(0,mx.sig)
-#
-#    g[s] ~ Categorical(p_1[s],...,p_m[s])
-#    p_j[s] = v_j[s] * prod_{k<j} (1-v_k[s])
-#    v_k[s] = w_j(knots[j,],x[s,],rho) * v[k]
-#            (w is a Gaussian kernel)
-#
-#    knot[j1,j2] ~ unif(0,1)
-#    rho ~ Unif(0,1)
-#    v[j] ~ beta(1,DOF)
-#
-#############################################################################
+#Adapted from https://www4.stat.ncsu.edu/~bjreich/code/SSB.R
 
 library(MCMCpack)
 library(distr)
 library(mvtnorm)
 
-#Compute v_k(s)
+library(LatticeKrig) # quilt.plot
+library(maps) # map()
+library(Rcpp)
+
+#Compute v_k(s) (function from Reich(2007))
 onevs<-function(z,rho,knot,v,kernel="gaussian"){
   kkk<-v
   for(j in 1:length(v)){
@@ -35,7 +22,7 @@ onevs<-function(z,rho,knot,v,kernel="gaussian"){
   }
   kkk}
 
-#take all the vs and compute probabilities
+#take all the vs and compute probabilities (function from Reich(2007))
 makeprobs<-function(vs){
   m<-ncol(vs)
   failures<-matrix(0,m,m)
@@ -47,7 +34,7 @@ makeprobs<-function(vs){
   probs
 }
 
-#generate categorical variables:
+#generate categorical variables: (function from Reich(2007))
 rcat<-function(prob){
   (1:length(prob))%*%rmultinom(1,1,ifelse(prob>0,prob,0))
 }
@@ -107,6 +94,7 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
   sige <- matrix(rep(mx.sige/2,n.terms*nt), nrow = nt)
   taue <- 1/sige^2
   mu.mat <- matrix(rep(0,n.terms*nt), nrow = nt)
+  mu.value <- mu.mat
   sigs <- rep(mx.sigs/2, nt)
   taumu <- 1/sigs^2
   knot <- matrix(runif(2*n.terms,0,1),2,n.terms)
@@ -156,7 +144,7 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
       COV[t]<-solve(t(x)%*%diag(taue[t,][g.mat[,t]])%*%x)
       mn<-COV[t]%*%t(x)%*%diag(taue[g.mat[,t]])%*%(y[,t]-mu.mat[g.mat[,t]])
       beta.mat[,t] <- mean(y[,t])
-        #mn + t(chol(COV[t]))
+      #beta.mat[,t] <- mn + t(chol(COV[t])) #ORIGINAL CODE FOR HIGHER DIMENSIONAL DATA (more covariates)
         #Altered for no covariate data
       r[,t]<-y[,t]-x%*%beta.mat[,t]
       knot <- knot.mat[,,t]
@@ -271,14 +259,11 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
     }
     
     #update Paci-Finazzi:
-    #separate the components
     #Keeping a track of knots (dynamic)
     
     #order g.mat for the Paci-Finazzi time series
     g.mat.paci <- order.allocation(g.mat)
-    
     phi.ts.old <- phi.ts #Debug term
-    
     n.clust <- rep(0, nt)
     max.clust <- max(max(length(unique(as.vector(g.mat.paci)))),2)
     max.clust.knot <- max(max(length(unique(as.vector(g.mat)))),2)
@@ -354,18 +339,36 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
     
     if(i>burn){
       afterburn<-afterburn+1
-      summu<-summu+mu.mat[g.mat[,1]]
-      summu2<-summu2+mu.mat[g.mat[,1]]^2
+      summu<-summu+mu.mat[g.mat[,nt]]
+      summu2<-summu2+mu.mat[g.mat[,nt]]^2
       sumtp<-sumtp+probs[,n.terms]
     }
     
   }
   
+  #Checking that the algorithm doesn't produce abnormal results
   post.mn<-summu/afterburn
   post.sd<-summu2/afterburn-post.mn^2
   truncprob<-sumtp/afterburn
   
+  #Predictive surface
+  surface.pred <- rep(0, nt)
+  error.ts <- rmvnorm(1, rep(0, max.clust.knot), lambda[l]*temp.H)
+  
+  mn.post <- beta.mat[,nt]
+  mu.post <- mu.mat[nt,][g.mat[,nt]]
+  
+  mu.pred <- mn.post*x + mu.post
+  sd.pred <- taue[nt,][g.mat[,nt]]
+  
+  surface.pred <- mu.pred + phi.effect[,nt]*rho.ts[g.mat.paci[,nt]] + error.ts[g.mat.paci[,nt]]
+  
   list(truncprob=truncprob,beta=keepbeta[burn:runs,],
-       rho=keeprho[burn:runs],post.mn=post.mn,post.sd=post.sd, membership = g.mat, mu = mu.mat[1,], knot.1 = knot.mat[,,1], dynamic.effect = phi.effect, dynamic.unique = phi.ts, probs.cluster1 = probs.cluster1, rho.ts = rho.ts, probs.last.cluster = probs.last.cluster)
+       rho=keeprho[burn:runs],post.mn=post.mn,post.sd=post.sd, membership = g.mat, 
+       mu = mu.mat[1,], knot.1 = knot.mat[,,1], dynamic.effect = phi.effect, 
+       dynamic.unique = phi.ts, probs.cluster1 = probs.cluster1, rho.ts = rho.ts, 
+       probs.last.cluster = probs.last.cluster, sd.pred = sd.pred, surface.pred = surface.pred, 
+       ts.membership = g.mat.paci, mn.post = mn.post, mu.post = mu.post, 
+       knot.pred = knot.mat[,,nt])
 }
 
