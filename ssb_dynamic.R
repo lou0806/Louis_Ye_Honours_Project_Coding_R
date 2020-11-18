@@ -65,7 +65,7 @@ order.allocation <- function(mat) {
 
 #The whole Shebang!
 SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
-                      runs=1000,burn=300,display=10) {
+                      runs=1000,burn=300,display=10, testingRainfall = TRUE) {
   #y:       data
   #x:       covariates
   #z:       n x 2 matrix of coordinates, scaled to [0,1]
@@ -75,6 +75,7 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
   #display: how often to display results
   #DOF:     v~beta(1,DOF)
   #mx.sig:  the sds are U(0,mx.sd)
+  #testingRainfall: Can remove this and anything associated, was quick fix for the density plots
   
   ns <- nrow(y) #number of locations
   nt <- ncol(y) #number of years/replications
@@ -87,6 +88,8 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
   #Standardize the outcomes and predictors:
   if(min(z)<0 | max(z)>1){print("THE SPATIAL COORDINATES ARE NOT STANDARDIZED!")}   
   
+  dens.1 <- dens.19 <- dens.34 <- rep(0, runs)
+  
   #initial values
   beta.mat<-matrix(rep(0,nt*p), ncol = nt)
   cluster.count <- rep(0, runs)
@@ -98,7 +101,7 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
   sigs <- rep(mx.sigs/2, nt)
   taumu <- 1/sigs^2
   knot <- matrix(runif(2*n.terms,0,1),2,n.terms)
-  rho <- .5 #influences clustering
+  rho <- rep(.5,nt) #influences clustering
   
   g.mat <- matrix(rep(1,n*nt), ncol = nt) #membership
   y.mat <- y
@@ -141,13 +144,14 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
     r <- matrix(rep(0, ns*nt), ncol = nt)
     
     for (t in 1:nt) {
-      COV[t]<-solve(t(x)%*%diag(taue[t,][g.mat[,t]])%*%x)
-      mn<-COV[t]%*%t(x)%*%diag(taue[g.mat[,t]])%*%(y[,t]-mu.mat[g.mat[,t]])
+      #COV[t]<-solve(t(x)%*%diag(taue[t,][g.mat[,t]])%*%x)
+      #mn<-COV[t]%*%t(x)%*%diag(taue[g.mat[,t]])%*%(y[,t]-mu.mat[g.mat[,t]])
       beta.mat[,t] <- mean(y[,t])
       #beta.mat[,t] <- mn + t(chol(COV[t])) #ORIGINAL CODE FOR HIGHER DIMENSIONAL DATA (more covariates)
         #Altered for no covariate data
       r[,t]<-y[,t]-x%*%beta.mat[,t]
       knot <- knot.mat[,,t]
+      old.g.mat <- g.mat
     
       for(j in 1:n.terms) {
         #update mu
@@ -203,7 +207,7 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
       MHrate<-sum(log(canprobs[cbind(1:n, g.mat[,t])])-
                     log(probs[cbind(1:n, g.mat[,t])]))
       if(runif(1,0,1) < exp(MHrate)) {
-        rho<-canrho
+        rho[t]<-canrho
         vs<-canvs
         probs<-canprobs
       }
@@ -216,7 +220,7 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
         if(max(g.mat[,t])>=k){
           canv<-v;canv[k]<-rnorm(1,v[k],.05)
           if(canv[k]>0 & canv[k]<1){
-            canvs[,k]<-onevs(z,rho,knot[,k],canv[k])
+            canvs[,k]<-onevs(z,rho[t],knot[,k],canv[k])
             canprobs<-makeprobs(canvs)
             MHrate<-sum(log(canprobs[cbind(1:n,g.mat[,t])])-
                           log(probs[cbind(1:n,g.mat[,t])]))+
@@ -237,7 +241,7 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
           canknot <- knot
           canknot[j,k] <- rnorm(1,knot[j,k],.1)
           if(canknot[j,k] > 0 & canknot[j,k]<1) {
-            canvs[,k] <- onevs(z,rho,canknot[,k],v[k])
+            canvs[,k] <- onevs(z,rho[t],canknot[,k],v[k])
             canprobs <- makeprobs(canvs)
             MHrate<-sum(log(canprobs[cbind(1:n,g.mat[,t])]) -
                           log(probs[cbind(1:n,g.mat[,t])]))
@@ -254,7 +258,7 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
       probs.cluster1[,t] <- probs[,1]
       
       if(t == nt) {
-        probs.last.cluster <- probs[,g.mat[1,nt]]
+        probs.last.cluster <- probs[,g.mat[1,]]
       }
     }
     
@@ -323,7 +327,7 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
     }
     
     ##General updating/recording
-    keeprho[i]<-rho
+    keeprho[i]<-rho[1]
     keepbeta[i,]<-beta[,1]
     cluster.count[i] <- length(unique(g.mat[,1]))
     
@@ -343,7 +347,28 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
       summu2<-summu2+mu.mat[g.mat[,nt]]^2
       sumtp<-sumtp+probs[,n.terms]
     }
+    #Density plot
     
+    print(i)
+    
+    if (testingRainfall == TRUE) {
+    
+    mu.post.1 <- mu.mat[nt,][g.mat[1,nt]]
+    mu.post.19 <- mu.mat[nt,][g.mat[19,nt]]
+    mu.post.34<- mu.mat[nt,][g.mat[34,nt]]
+    
+    sd.pred.1 <- taue[nt,][g.mat[1,nt]]
+    sd.pred.19 <- taue[nt,][g.mat[19,nt]]
+    sd.pred.34 <- taue[nt,][g.mat[34,nt]]
+    
+    dens.1[i] <- rnorm(1, mean(y[,nt]) + mu.post.1, sd.pred.1)
+    dens.19[i] <- rnorm(1, mean(y[,nt]) + mu.post.19, sd.pred.19)
+    dens.34[i] <- rnorm(1, mean(y[,nt]) + sd.pred.34, sd.pred.34)
+    
+    hist(dens.1, probability = TRUE)
+    hist(dens.19, probability = TRUE)
+    hist(dens.34, probability = TRUE)
+    }
   }
   
   #Checking that the algorithm doesn't produce abnormal results
@@ -369,6 +394,8 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
        dynamic.unique = phi.ts, probs.cluster1 = probs.cluster1, rho.ts = rho.ts, 
        probs.last.cluster = probs.last.cluster, sd.pred = sd.pred, surface.pred = surface.pred, 
        ts.membership = g.mat.paci, mn.post = mn.post, mu.post = mu.post, 
-       knot.pred = knot.mat[,,nt])
+       knot.pred = knot.mat[,,nt], lastprobs = probs, old.g.mat = old.g.mat,
+       dens.1 = dens.1, dens.19 = dens.19, dens.34 = dens.34,
+       error.ts = error.ts)
 }
 

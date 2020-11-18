@@ -61,26 +61,33 @@ output.rainfall <- SSB.dynamic(y =  y, z = z, x = x, n.terms = n, DOF=1,mx.sige=
 
 ## Plots
 
-plot(z[,1],z[,2],col=output.rainfall$membership[,1], type = 'p', pch = 19)
+plot(z[,1],z[,2],col=output.rainfall$membership[,1], type = 'p', pch = 19, main = "Clusters at t = 1")
+plot(z[,1],z[,2],col=output.rainfall$membership[,5], type = 'p', pch = 19, main = "Clusters at t = 19")
+
+
+first.clust.1 <- output.rainfall$membership[1,1]
 
 viewPred.1 <- function() {
-  quilt.plot(ylatlon[,2],ylatlon[,1],output.rainfall$probs.cluster1[,1],fg='grey90',
-           col= colorRampPalette(c('dark blue','grey90','dark red'))(100))
+  quilt.plot(ylatlon[,2],ylatlon[,1],output.rainfall$probs.cluster1[,first.clust.1],fg='grey90',
+           col= colorRampPalette(c('dark blue','grey90','dark red'))(100),
+           nx=45,ny=45, main = "Pr of Belonging to Cluster 1 at t = 1")
   map('county',add=T,col='grey')
   map('state',add=T,col='grey60',lwd=2)
 }
 viewPred.1()
-  
+
+first.clust.19 <- output.rainfall$membership[19,1]
 viewPred.last.cluster <- function() {
-  quilt.plot(ylatlon[,2],ylatlon[,1],output.rainfall$probs.last.cluster,
-           col= colorRampPalette(c('dark blue','grey90','dark red'))(100))
+  quilt.plot(ylatlon[,2],ylatlon[,1],output.rainfall$probs.last.cluster[,first.clust.19],
+           col= colorRampPalette(c('dark blue','grey90','dark red'))(100),
+           nx=45,ny=45, main = "Pr of Belonging to Cluster 1 at t = 19")
   map('county',add=T,col='grey')
   map('state',add=T,col='grey60',lwd=2)
 }
+
 viewPred.last.cluster()
 
 
-plot(z[,1],z[,2],col=output.rainfall$membership[,5], type = 'p', pch = 19)
 
 ## Surface Prediction
 surface.predicted <- output.rainfall$surface.pred
@@ -91,14 +98,15 @@ lines(density(pred.true), col = 'red')
 
 viewPred.Surface <- function() {
   quilt.plot(ylatlon[,2],ylatlon[,1],surface.predicted,
-           col= colorRampPalette(c('dark blue','grey90','dark red'))(100), main = "Predicted Surface")
+           col= colorRampPalette(c('dark blue','grey90','dark red'))(100), main = "Predicted Surface",
+           nx=45,ny=45)
   map('county',add=T,col='grey')
   map('state',add=T,col='grey60',lwd=2)
 }
 viewPred.Surface()
 viewYearJuly(2004,Y) 
 
-  
+
 ## Predictive Parameters for Smooth Surface Generation
 rho.ts.pred <- output.rainfall$rho.ts[1:length(unique(output.rainfall$membership[,1]))]
 effect.ts.pred <- output.rainfall$dynamic.effect[,M]
@@ -117,25 +125,56 @@ membership.pred <- output.rainfall$membership[,19]
 hist(membership.pred, main = "Histogram of Cluster Membership", breaks = 20)
 
 knots.pred <- output.rainfall$knot.pred
-#Get knot locations
+# Get knot locations
 knots.pred.unique <- knots.pred[,unique(membership.pred)]
 knots.unique.revert <- revert.map(z = t(knots.pred.unique), minLong = minLong, maxLong = maxLong, minLat = minLat, maxLat = maxLat)
 
-#Visualisation of knot means and sd
+# Visualisation of knot means and sd
 viewPred.knotmeans <- function() {
   quilt.plot(knots.unique.revert[,2],knots.unique.revert[,1],unique(theta.mean.pred),
-             col= colorRampPalette(c('dark blue','grey90','dark red'))(100), main = "Predicted Knot Means")
+             col= colorRampPalette(c('dark blue','grey90','dark red'))(100), main = "Predicted Knot Means",
+             nx=45,ny=45)
   map('county',add=T,col='grey')
   map('state',add=T,col='grey60',lwd=2)
 }
 viewPred.knotsd <- function() {
   quilt.plot(knots.unique.revert[,2],knots.unique.revert[,1],unique(sd.pred),
-             col= colorRampPalette(c('dark blue','grey90','dark red'))(100), main = "Predicted Knot Sd")
+             col= colorRampPalette(c('dark blue','grey90','dark red'))(100), main = "Predicted Knot Sd",
+             nx=45,ny=45)
   map('county',add=T,col='grey')
   map('state',add=T,col='grey60',lwd=2)
 }
 viewPred.knotmeans()
 viewPred.knotsd()
+
+# Density estimation
+mu.effect <- unique(mu.post.pred)
+which(unique(output.rainfall$membership[,19]) == temp.assign[1])
+
+# Location 1
+loc.1.density <- output.rainfall$dens.1
+plot(density(loc.1.density[50:100]), main = "Density at Location 1")
+
+#Location 19
+loc.19.density <- output.rainfall$dens.19
+plot(density(loc.19.density[50:100]), main = "Density at Location 19")
+ 
+
+#Location 34
+loc.34.density <- output.rainfall$dens.34
+plot(density(loc.34.density[50:100]), main = "Density at Location 34")
+
+#unique(output.rainfall$membership[,19])
+#unique(mu.post.pred)
+
+
+
+
+
+
+
+
+
 
 ## Visualisation Functions (from Lui, Arthur)
 
@@ -146,7 +185,8 @@ viewPred <- function(x,latlon,main.plot='',bks=c(14,40)) {
              ylim=range(latlon[,1])+c(-1,1),
              xlim=range(latlon[,2])+c(-1,1),
              breaks=seq(bks[1],bks[2],len=length(x)+1),
-             col= colorRampPalette(c('dark blue','grey90','dark red'))(length(x)))
+             col= colorRampPalette(c('dark blue','grey90','dark red'))(length(x)),
+             nx=45,ny=45)
   map('county',add=T,col='grey')
   map('state',add=T,col='grey60',lwd=2)
 }
@@ -156,7 +196,8 @@ viewYearJuly <- function(yr,y,bks=seq(14,40,len=101)) {
   ind <- which(uyears==yr)
   quilt.plot(ylatlon[,2],ylatlon[,1],y[ind,],
              fg='grey90',main=yr,
-             col= colorRampPalette(c('dark blue','grey90','dark red'))(100))
+             col= colorRampPalette(c('dark blue','grey90','dark red'))(100),
+             nx=45,ny=45)
   map('county',add=T,col='grey')
   map('state',add=T,col='grey60',lwd=2)
 }

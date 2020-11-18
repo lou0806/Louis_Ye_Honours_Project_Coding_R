@@ -55,11 +55,11 @@ dp.post <-function(alpha, F0, n, T.vec, theta.exist, n.terms = 1e3, size = 1e4) 
   Fnew[,index]
 }
 
-##GSDP Function - MCMC Posterior Simulation Model
+##SDP Function - MCMC Posterior Simulation Model
 ##This function uses in-model Kriging (discussed in end of Section 3 in Gelfand (2005)) to 'fill in' missing data
 
 ##function without cluster implementation
-gsdp<-function(y,x,
+sdp<-function(y,x,
                  spatial=T,varyparam=rep(F,3),nk=5,
                  iters=1000,burn=400,verbose=10,thin=1,mx.siga,mx.sigb,mx.taua,mx.taub, mx.bphi = 0.1,
                  a.alpha = 1, b.alpha = 1,
@@ -270,7 +270,7 @@ gsdp<-function(y,x,
   }
   
   plot(density(points.1[burn:iters]))
-  return(points.1[burn:iters])
+  list(points = points.1[burn:iters], theta.post = theta.post)
   
 }
 
