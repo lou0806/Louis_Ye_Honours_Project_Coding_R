@@ -169,6 +169,41 @@ plot(density(loc.34.density[50:100]), main = "Density at Location 34")
 
 
 
+#Creating new points near location 34 to test affect on density
+
+y.alt <- y
+y.alt[35,]<- y[34,]
+y.alt[36,]<- y[34,]
+y.alt[37,]<- y[34,]
+y.alt[41,]<-y.alt[40,]<-y.alt[39,]<-y.alt[38,]<- y[34,]
+
+z.alt <- z
+z.alt[35,] <- z[34,] + c(0.01, 0.01)
+z.alt[36,] <- z.alt[35,] + c(0.01, 0.01)
+z.alt[37,]<- z.alt[36,] + c(0.01, 0)
+z.alt[38,]<- z.alt[37,] + c(0.01, 0)
+z.alt[39,]<- z.alt[38,] + c(0.01, 0)
+z.alt[40,]<- z.alt[39,] + c(0.01, 0)
+z.alt[41,]<- z.alt[40,] + c(0.01, 0)
+
+
+output.rainfall.modified <- SSB.dynamic(y =  y.alt, z = z.alt, x = x, n.terms = n, DOF=1,mx.sige=1,mx.sigs=1, runs = 100, burn = 50)
+
+
+viewPred.surface.modified <- function() {
+  quilt.plot(ylatlon[,2],ylatlon[,1],y.alt[,19],
+             col= colorRampPalette(c('dark blue','grey90','dark red'))(100),
+             nx=45,ny=45, main = "Modified Surface")
+  map('county',add=T,col='grey')
+  map('state',add=T,col='grey60',lwd=2)
+}
+
+viewPred.surface.modified()
+
+plot(density(output.rainfall.modified$dens.34), main = "Density at Location 34 w/ Modified Data")
+
+
+
 
 
 

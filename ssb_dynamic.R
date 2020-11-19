@@ -190,8 +190,8 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
       for(s in 1:n){
         cang<-g.mat[,t]
         cang[s]<-rcat(probs[s,])
-        MHrate<-dnorm(r[s],mu.mat[t,][cang[s]],sige[cang[s]],log=T)-
-          dnorm(r[s],mu.mat[t,][g.mat[s,t]],sige[g.mat[s,t]],log=T)
+        MHrate<-dnorm(r[s,t],mu.mat[t,][cang[s]],sige[cang[s]],log=T)-
+          dnorm(r[s,t],mu.mat[t,][g.mat[s,t]],sige[g.mat[s,t]],log=T)
         if(runif(1,0,1)<exp(MHrate)){
           g.mat[,t]<-cang
         }
@@ -347,27 +347,28 @@ SSB.dynamic<-function(y,x=NA,z,DOF=1,mx.sige=1,mx.sigs=1,n.terms=100,
       summu2<-summu2+mu.mat[g.mat[,nt]]^2
       sumtp<-sumtp+probs[,n.terms]
     }
-    #Density plot
     
     print(i)
     
+    #Density plots, can be deleted
+    
     if (testingRainfall == TRUE) {
     
-    mu.post.1 <- mu.mat[nt,][g.mat[1,nt]]
-    mu.post.19 <- mu.mat[nt,][g.mat[19,nt]]
-    mu.post.34<- mu.mat[nt,][g.mat[34,nt]]
-    
-    sd.pred.1 <- taue[nt,][g.mat[1,nt]]
-    sd.pred.19 <- taue[nt,][g.mat[19,nt]]
-    sd.pred.34 <- taue[nt,][g.mat[34,nt]]
-    
-    dens.1[i] <- rnorm(1, mean(y[,nt]) + mu.post.1, sd.pred.1)
-    dens.19[i] <- rnorm(1, mean(y[,nt]) + mu.post.19, sd.pred.19)
-    dens.34[i] <- rnorm(1, mean(y[,nt]) + sd.pred.34, sd.pred.34)
-    
-    hist(dens.1, probability = TRUE)
-    hist(dens.19, probability = TRUE)
-    hist(dens.34, probability = TRUE)
+      mu.post.1 <- mu.mat[nt,][g.mat[1,nt]]
+      mu.post.19 <- mu.mat[nt,][g.mat[19,nt]]
+      mu.post.34<- mu.mat[1,][g.mat[34,1]]
+      
+      sd.pred.1 <- taue[nt,][g.mat[1,nt]]
+      sd.pred.19 <- taue[nt,][g.mat[19,nt]]
+      sd.pred.34 <- taue[1,][g.mat[34,1]]
+      
+      dens.1[i] <- rnorm(1, mean(y[,nt]) + mu.post.1, sd.pred.1)
+      dens.19[i] <- rnorm(1, mean(y[,nt]) + mu.post.19, sd.pred.19)
+      dens.34[i] <- rnorm(1, mean(y[,nt]) + mu.post.34, sd.pred.34)
+      
+      hist(dens.1, probability = TRUE)
+      hist(dens.19, probability = TRUE)
+      hist(dens.34, probability = TRUE)
     }
   }
   

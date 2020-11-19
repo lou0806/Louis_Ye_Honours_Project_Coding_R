@@ -52,7 +52,7 @@ ns <- nrow(y)
 #g.true <- matrix(rep(0,ns*nt), ncol = nt)
 
 ## RUN THIS FUNCTION
-output.dynamic <- SSB.dynamic(y =  y, z = z, x = x, n.terms = n, DOF=1, mx.sige=2, mx.sigs=2, runs = 300, burn = 100) #Can change parameters within
+output.dynamic <- SSB.dynamic(y =  y, z = z, x = x, n.terms = n, DOF=1, mx.sige=2, mx.sigs=2, runs = 300, burn = 100, testingRainfall = FALSE) #Can change parameters within
 
 ## Plots of Cluster Analysis
 
